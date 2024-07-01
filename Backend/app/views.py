@@ -19,14 +19,24 @@ class TextToSpeechView(APIView):
             language_goal = "English" if language in ['en'] else "Arabic" if language in [
                 'ar'] else "English"
 
-            response = client.chat.completions.create(
-                model="gpt-3.5-turbo-0125",
-                messages=[
-                    {"role": "system",
-                     "content": f"The assistant is designed to help improve your {language_goal} language skills through conversation."},
-                    {"role": "user", "content": text}
-                ]
-            )
+            if language_goal == "English":
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo-0125",
+                    messages=[
+                        {"role": "system",
+                         "content": f"You are my Arabic teacher, I am here to improve my spoken arabic skills, answer in {language_goal} language. Answer like a real person, without long answers, only 1 sentence"},
+                        {"role": "user", "content": text}
+                    ]
+                )
+            else:
+                response = client.chat.completions.create(
+                    model="gpt-3.5-turbo-0125",
+                    messages=[
+                        {"role": "system",
+                         "content": f"You are my English teacher, I am here to improve my spoken english skills, combine and answer in 2 languages: {language_goal} and English. Answer like a real person, without long answers, only 1 sentence"},
+                        {"role": "user", "content": text}
+                    ]
+                )
 
             chat_response_text = response.choices[0].message.content
 
