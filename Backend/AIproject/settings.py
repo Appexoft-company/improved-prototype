@@ -27,6 +27,7 @@ DEBUG = True
 
 ALLOWED_HOSTS = [
     'prototype-65oy.onrender.com',
+    'improved-prototype.onrender.com'
 ]
 PORT = os.environ.get('PORT', 8000)
 
