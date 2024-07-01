@@ -26,9 +26,9 @@ DEBUG = True
 
 
 ALLOWED_HOSTS = [
+    'prototype-65oy.onrender.com',
 ]
-# PORT = os.environ.get('PORT', 8000)
-# Application definition
+PORT = os.environ.get('PORT', 8000)
 
 INSTALLED_APPS = [
     "django.contrib.admin",
