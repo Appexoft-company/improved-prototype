@@ -1,4 +1,3 @@
 .idea
-venv
 Backend/app/migrations/__pycache__
 .env

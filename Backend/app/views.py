@@ -6,42 +6,41 @@ from langdetect import detect
 from dotenv import load_dotenv
 import base64
 from openai import OpenAI
+from .models import ChatMessage
+from rest_framework.permissions import IsAuthenticated
+
 load_dotenv()
 
+
 class TextToSpeechView(APIView):
+    permission_classes = [IsAuthenticated]
     def post(self, request, *args, **kwargs):
         serializer = TextToSpeechSerializer(data=request.data)
         if serializer.is_valid():
             client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
             text = serializer.validated_data['text']
+            user = request.user
 
-            language = detect(text)
-            language_goal = "English" if language in ['en'] else "Arabic" if language in [
-                'ar'] else "English"
+            previous_messages = ChatMessage.objects.filter(user=user).order_by('created_at')
+            messages = [{"role": "system",
+                         "content": f"You should behave like my personal tutor to help me practice spoken Arabic, learn it effectively and increase my vocabulary. You should engage in a constructive dialog to help me master the Arabic language. Your answers should be as realistic as possible and not too long (1 sentence maximum). You also help me to have a conversation in Arabic by explaining words in English."}]
+            for msg in previous_messages:
+                messages.append({"role": "user", "content": msg.message})
+                messages.append({"role": "assistant", "content": msg.response})
 
-            if language_goal == "English":
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo-0125",
-                    messages=[
-                        {"role": "system",
-                         "content": f"You are my Arabic teacher, I am here to improve my spoken arabic skills, answer in {language_goal} language. Answer like a real person, without long answers, only 1 sentence"},
-                        {"role": "user", "content": text}
-                    ]
-                )
-            else:
-                response = client.chat.completions.create(
-                    model="gpt-3.5-turbo-0125",
-                    messages=[
-                        {"role": "system",
-                         "content": f"You are my English teacher, I am here to improve my spoken english skills, combine and answer in 2 languages: {language_goal} and English. Answer like a real person, without long answers, only 1 sentence"},
-                        {"role": "user", "content": text}
-                    ]
-                )
+            messages.append({"role": "user", "content": text})
+
+            print(messages)
+
+            response = client.chat.completions.create(
+                model="gpt-3.5-turbo-0125",
+                messages=messages
+            )
 
             chat_response_text = response.choices[0].message.content
+            ChatMessage.objects.create(user=user, message=text, response=chat_response_text)
 
             audio_buffer = bytearray()
-
             with client.audio.speech.with_streaming_response.create(
                     model="tts-1",
                     voice="alloy",
