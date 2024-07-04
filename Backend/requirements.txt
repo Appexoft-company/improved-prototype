@@ -4,3 +4,4 @@ djangorestframework==3.15.2
 langdetect==1.0.9
 openai==1.35.5
 python-dotenv==1.0.1
+psycopg2==2.9.9
