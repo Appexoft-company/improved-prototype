@@ -23,17 +23,15 @@ class TextToSpeechView(APIView):
 
             previous_messages = ChatMessage.objects.filter(user=user).order_by('created_at')
             messages = [{"role": "system",
-                         "content": f"You should behave like my personal tutor to help me practice spoken Arabic, learn it effectively and increase my vocabulary. You should engage in a constructive dialog to help me master the Arabic language. Your answers should be as realistic as possible and not too long (1 sentence maximum). You also help me to have a conversation in Arabic by explaining words in English."}]
+                         "content": f"You should act like my personal Arabic tutor to help me practice spoken Arabic, learn it effectively and expand my vocabulary. You should engage in constructive dialog and be a conversation starter (ask questions to keep the conversation going) to help me learn Arabic. Your answers should be as realistic as possible and not too long (NO MORE THAN 2 SENTENCES). You will also help me to carry on a conversation in Arabic, explaining the words in English.If user writing something in ARABIC - explain if the prononsiation is good or not and keep learning me. Structure of your messages must be: small greetings, arabic words with english thansctiptions, question to help with more words to continue conversations in the end"}]
             for msg in previous_messages:
                 messages.append({"role": "user", "content": msg.message})
                 messages.append({"role": "assistant", "content": msg.response})
 
             messages.append({"role": "user", "content": text})
 
-            print(messages)
-
             response = client.chat.completions.create(
-                model="gpt-3.5-turbo-0125",
+                model="gpt-4",
                 messages=messages
             )
 
