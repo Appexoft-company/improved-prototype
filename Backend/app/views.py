@@ -1,34 +1,51 @@
 from django.http import JsonResponse, HttpResponse
-from rest_framework.views import APIView
-from .serializers import TextToSpeechSerializer
+from .serializers import TextToSpeechSerializer, ChatMessageSerializer
 import os
-from langdetect import detect
 from dotenv import load_dotenv
 import base64
 from openai import OpenAI
 from .models import ChatMessage
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework.permissions import IsAuthenticated
+from rest_framework import status
+
+from .utils import get_message_with_according_difficulty
 
 load_dotenv()
 
 
 class TextToSpeechView(APIView):
     permission_classes = [IsAuthenticated]
+
     def post(self, request, *args, **kwargs):
         serializer = TextToSpeechSerializer(data=request.data)
         if serializer.is_valid():
             client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
             text = serializer.validated_data['text']
+            difficulty = serializer.validated_data.get('difficulty', '')
             user = request.user
+
+            if difficulty:
+                user.difficulty = difficulty
+                user.save()
+
+            else:
+                difficulty = user.difficulty
+
+            message = get_message_with_according_difficulty(difficulty)
 
             previous_messages = ChatMessage.objects.filter(user=user).order_by('created_at')
             messages = [{"role": "system",
-                         "content": f"You should act like my personal Arabic tutor to help me practice spoken Arabic, learn it effectively and expand my vocabulary. You should engage in constructive dialog and be a conversation starter (ask questions to keep the conversation going) to help me learn Arabic. Your answers should be as realistic as possible and not too long (NO MORE THAN 2 SENTENCES). You will also help me to carry on a conversation in Arabic, explaining the words in English.If user writing something in ARABIC - explain if the prononsiation is good or not and keep learning me. Structure of your messages must be: small greetings, arabic words with english thansctiptions, question to help with more words to continue conversations in the end"}]
+                         "content": message}]
             for msg in previous_messages:
                 messages.append({"role": "user", "content": msg.message})
                 messages.append({"role": "assistant", "content": msg.response})
 
             messages.append({"role": "user", "content": text})
+
+            print(messages)
 
             response = client.chat.completions.create(
                 model="gpt-4",
@@ -57,3 +74,23 @@ class TextToSpeechView(APIView):
             })
 
         return HttpResponse("Invalid data", status=400)
+
+
+
+class ChatHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, *args, **kwargs):
+        user = request.user
+        chat_history = ChatMessage.objects.filter(user=user).order_by('created_at')
+        serializer = ChatMessageSerializer(chat_history, many=True)
+        return Response(serializer.data, status=status.HTTP_200_OK)
+
+
+class DeleteChatHistoryView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def delete(self, request, *args, **kwargs):
+        user = request.user
+        ChatMessage.objects.filter(user=user).delete()
+        return Response({"message": "Chat history deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
