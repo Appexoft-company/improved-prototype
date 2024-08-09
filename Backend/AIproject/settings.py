@@ -84,11 +84,11 @@ DATABASES = {
     'default': {
         #'ENGINE': 'django.db.backends.sqlite3',
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': 'railway',
-        'USER': 'postgres',
-        'PASSWORD': 'koeShRRescrqalgfcqoDLBdtCFYVKSEN',
-        'HOST': 'monorail.proxy.rlwy.net',
-        'PORT': '38179',
+        'NAME': 'postgresai_y8r8',
+        'USER': 'postgresai_y8r8_user',
+        'PASSWORD': '8Sxg9a4xYA3njLR7P6fXLNUtQUYGAHLg',
+        'HOST': 'dpg-cqqte9rv2p9s73bbjj90-a.frankfurt-postgres.render.com',
+        'PORT': '5432',
     }
 }
 
