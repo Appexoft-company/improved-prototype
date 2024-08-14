@@ -45,8 +45,6 @@ class TextToSpeechView(APIView):
 
             messages.append({"role": "user", "content": text})
 
-            print(messages)
-
             response = client.chat.completions.create(
                 model="gpt-4",
                 messages=messages
