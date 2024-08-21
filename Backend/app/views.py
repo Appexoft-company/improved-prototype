@@ -1,4 +1,4 @@
-from django.http import JsonResponse, HttpResponse
+from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
 from .serializers import TextToSpeechSerializer, ChatMessageSerializer
 import os
 from dotenv import load_dotenv
@@ -92,3 +92,73 @@ class DeleteChatHistoryView(APIView):
         user = request.user
         ChatMessage.objects.filter(user=user).delete()
         return Response({"message": "Chat history deleted successfully"}, status=status.HTTP_204_NO_CONTENT)
+
+
+class TextToSpeechViewImproved(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, *args, **kwargs):
+        serializer = TextToSpeechSerializer(data=request.data)
+        if serializer.is_valid():
+            client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
+            text = serializer.validated_data['text']
+            difficulty = serializer.validated_data.get('difficulty', '')
+            user = request.user
+
+            if difficulty:
+                user.difficulty = difficulty
+                user.save()
+            else:
+                difficulty = user.difficulty
+
+            message = get_message_with_according_difficulty(difficulty)
+
+            previous_messages = ChatMessage.objects.filter(user=user).order_by(
+                'created_at')
+            messages = [{"role": "system", "content": message}]
+            for msg in previous_messages:
+                messages.append({"role": "user", "content": msg.message})
+                messages.append({"role": "assistant", "content": msg.response})
+
+            messages.append({"role": "user", "content": text})
+
+            response = client.chat.completions.create(
+                model="gpt-4",
+                messages=messages,
+                stream=True  # Enable streaming
+            )
+
+            def generate():
+                chat_response_text = ""
+                audio_buffer = bytearray()
+
+                for chunk in response:
+                    if hasattr(chunk.choices[0].delta, 'content'):
+                        part = chunk.choices[0].delta.content
+                        if part and part.strip():
+                            chat_response_text += part
+
+                            with client.audio.speech.with_streaming_response.create(
+                                    model="tts-1",
+                                    voice="alloy",
+                                    response_format="mp3",
+                                    input=part
+                            ) as audio_response:
+                                audio_chunk_buffer = bytearray()
+                                for audio_chunk in audio_response.iter_bytes(
+                                        chunk_size=1024):
+                                    audio_chunk_buffer.extend(audio_chunk)
+
+                                base64_audio = base64.b64encode(
+                                    bytes(audio_chunk_buffer))
+                                base64_string = base64_audio.decode('utf-8')
+
+                            yield f"data: {{\"text\": \"{part}\", \"audio_base64\": \"{base64_string}\"}}\n\n"
+
+                ChatMessage.objects.create(user=user, message=text,
+                                           response=chat_response_text)
+
+            return StreamingHttpResponse(generate(),
+                                         content_type='text/event-stream')
+
+        return HttpResponse("Invalid data", status=400)
