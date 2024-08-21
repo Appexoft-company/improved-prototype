@@ -1,6 +1,8 @@
 from django.contrib.auth import get_user_model, authenticate
 from rest_framework import serializers, exceptions
 
+from user.models import User
+
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -47,3 +49,9 @@ class AuthTokenSerializer(serializers.Serializer):
 
         data["user"] = user
         return data
+
+
+class UserDifficultySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = User
+        fields = ['difficulty']
