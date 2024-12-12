@@ -1,19 +1,22 @@
 from django.http import JsonResponse, HttpResponse, StreamingHttpResponse
-from .serializers import TextToSpeechSerializer, ChatMessageSerializer
-import os
-from dotenv import load_dotenv
-import base64
-from openai import OpenAI
-from .models import ChatMessage
-from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework.permissions import IsAuthenticated
 from rest_framework import status
-
+from .serializers import TextToSpeechSerializer, ChatMessageSerializer
+from .models import ChatMessage
 from .utils import get_message_with_according_difficulty
+from dotenv import load_dotenv
+from openai import OpenAI
+from openai import OpenAIError
+import httpx
+import os
+import base64
 
+# Load environment variables
 load_dotenv()
+
+# Set OpenAI API key
 
 
 class TextToSpeechView(APIView):
@@ -22,58 +25,65 @@ class TextToSpeechView(APIView):
     def post(self, request, *args, **kwargs):
         serializer = TextToSpeechSerializer(data=request.data)
         if serializer.is_valid():
-            client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-            text = serializer.validated_data['text']
-            difficulty = serializer.validated_data.get('difficulty', '')
-            user = request.user
+            try:
+                # Initialize httpx client without proxy
+                http_client = httpx.Client()
+                
+                # Initialize OpenAI client with custom http client
+                client = OpenAI(
+                    api_key=os.getenv("OPENAI_API_KEY"),
+                    http_client=http_client
+                )
+                text = serializer.validated_data['text']
+                difficulty = serializer.validated_data.get('difficulty', '')
+                user = request.user
 
-            if difficulty:
-                user.difficulty = difficulty
-                user.save()
+                if difficulty:
+                    user.difficulty = difficulty
+                    user.save()
+                else:
+                    difficulty = user.difficulty
 
-            else:
-                difficulty = user.difficulty
+                message = get_message_with_according_difficulty(difficulty)
 
-            message = get_message_with_according_difficulty(difficulty)
+                previous_messages = ChatMessage.objects.filter(user=user).order_by('created_at')
+                messages = [{"role": "system", "content": message}]
+                for msg in previous_messages:
+                    messages.append({"role": "user", "content": msg.message})
+                    messages.append({"role": "assistant", "content": msg.response})
 
-            previous_messages = ChatMessage.objects.filter(user=user).order_by('created_at')
-            messages = [{"role": "system",
-                         "content": message}]
-            for msg in previous_messages:
-                messages.append({"role": "user", "content": msg.message})
-                messages.append({"role": "assistant", "content": msg.response})
+                messages.append({"role": "user", "content": text})
 
-            messages.append({"role": "user", "content": text})
+                # Updated chat completion call
+                response = client.chat.completions.create(
+                    model="gpt-4",
+                    messages=messages,
+                    max_tokens=250
+                )
+                chat_response_text = response.choices[0].message.content
+                ChatMessage.objects.create(user=user, message=text, response=chat_response_text)
 
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=messages,
-                max_tokens=250
-            )
-
-            chat_response_text = response.choices[0].message.content
-            ChatMessage.objects.create(user=user, message=text, response=chat_response_text)
-
-            audio_buffer = bytearray()
-            with client.audio.speech.with_streaming_response.create(
+                # Updated speech generation
+                speech_response = client.audio.speech.create(
                     model="tts-1",
                     voice="alloy",
-                    response_format="mp3",
                     input=chat_response_text
-            ) as response:
-                for chunk in response.iter_bytes(chunk_size=1024):
-                    audio_buffer.extend(chunk)
+                )
 
-            base64_audio = base64.b64encode(bytes(audio_buffer))
-            base64_string = base64_audio.decode('utf-8')
+                # Convert audio to base64
+                base64_audio = base64.b64encode(speech_response.content).decode('utf-8')
 
-            return JsonResponse({
-                "text_response": chat_response_text,
-                "audio_base64": base64_string
-            })
+                return JsonResponse({
+                    "text_response": chat_response_text,
+                    "audio_base64": base64_audio
+                })
+            except Exception as e:
+                return JsonResponse({"error": str(e)}, status=500)
+            finally:
+                if 'http_client' in locals():
+                    http_client.close()
 
         return HttpResponse("Invalid data", status=400)
-
 
 
 class ChatHistoryView(APIView):
@@ -101,65 +111,69 @@ class TextToSpeechViewImproved(APIView):
     def post(self, request, *args, **kwargs):
         serializer = TextToSpeechSerializer(data=request.data)
         if serializer.is_valid():
-            client = OpenAI(api_key=os.environ.get("OPENAI_API_KEY"))
-            text = serializer.validated_data['text']
-            difficulty = serializer.validated_data.get('difficulty', '')
-            user = request.user
+            try:
+                # Initialize httpx client without proxy
+                http_client = httpx.Client()
+                
+                # Initialize OpenAI client with custom http client
+                client = OpenAI(
+                    api_key=os.getenv("OPENAI_API_KEY"),
+                    http_client=http_client
+                )
+                text = serializer.validated_data['text']
+                difficulty = serializer.validated_data.get('difficulty', '')
+                user = request.user
 
-            if difficulty:
-                user.difficulty = difficulty
-                user.save()
-            else:
-                difficulty = user.difficulty
+                if difficulty:
+                    user.difficulty = difficulty
+                    user.save()
+                else:
+                    difficulty = user.difficulty
 
-            message = get_message_with_according_difficulty(difficulty)
+                message = get_message_with_according_difficulty(difficulty)
 
-            previous_messages = ChatMessage.objects.filter(user=user).order_by(
-                'created_at')
-            messages = [{"role": "system", "content": message}]
-            for msg in previous_messages:
-                messages.append({"role": "user", "content": msg.message})
-                messages.append({"role": "assistant", "content": msg.response})
+                # Create messages array with system message first
+                messages = [
+                    {"role": "system", "content": message},
+                    {"role": "user", "content": text}
+                ]
 
-            messages.append({"role": "user", "content": text})
+                # Updated chat completion call
+                response = client.chat.completions.create(
+                    model="gpt-4",
+                    messages=messages,
+                    max_tokens=250,
+                    temperature=0.7  # Add some creativity while staying on topic
+                )
 
-            response = client.chat.completions.create(
-                model="gpt-4",
-                messages=messages,
-                stream=True  # Enable streaming
-            )
+                def generate():
+                    chat_response_text = ""
 
-            def generate():
-                chat_response_text = ""
-                audio_buffer = bytearray()
+                    for chunk in response:
+                        if chunk.choices[0].delta.content:
+                            part = chunk.choices[0].delta.content
+                            if part.strip():
+                                chat_response_text += part
 
-                for chunk in response:
-                    if hasattr(chunk.choices[0].delta, 'content'):
-                        part = chunk.choices[0].delta.content
-                        if part and part.strip():
-                            chat_response_text += part
-
-                            with client.audio.speech.with_streaming_response.create(
+                                # Generate audio for the chunk
+                                speech_response = client.audio.speech.create(
                                     model="tts-1",
                                     voice="alloy",
-                                    response_format="mp3",
                                     input=part
-                            ) as audio_response:
-                                audio_chunk_buffer = bytearray()
-                                for audio_chunk in audio_response.iter_bytes(
-                                        chunk_size=1024):
-                                    audio_chunk_buffer.extend(audio_chunk)
+                                )
 
-                                base64_audio = base64.b64encode(
-                                    bytes(audio_chunk_buffer))
-                                base64_string = base64_audio.decode('utf-8')
+                                # Convert to base64
+                                audio_chunk_base64 = base64.b64encode(speech_response.content).decode('utf-8')
 
-                            yield f"data: {{\"text\": \"{part}\", \"audio_base64\": \"{base64_string}\"}}\n\n"
+                                yield f"data: {{\"text\": \"{part}\", \"audio_base64\": \"{audio_chunk_base64}\"}}\n\n"
 
-                ChatMessage.objects.create(user=user, message=text,
-                                           response=chat_response_text)
+                    ChatMessage.objects.create(user=user, message=text, response=chat_response_text)
 
-            return StreamingHttpResponse(generate(),
-                                         content_type='text/event-stream')
+                return StreamingHttpResponse(generate(), content_type='text/event-stream')
+            except Exception as e:
+                return JsonResponse({"error": str(e)}, status=500)
+            finally:
+                if 'http_client' in locals():
+                    http_client.close()
 
         return HttpResponse("Invalid data", status=400)
